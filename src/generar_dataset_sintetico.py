@@ -337,10 +337,66 @@ def generar_dataset(n_x=N_X, n_y=N_Y, n_bancos=N_BANCOS,
         as_mp_f  = as_lp_f  * (1.02 + 0.08 * rng.random(n_total))
     
     # ── 9. VARIABLES ADICIONALES ──────────────────────────────────────────────
-    # Zona mineral (función de profundidad y alteración)
-    zona_mineral = np.where(banco_num > n_bancos * 0.7, 1,      # OXID superficial
-                   np.where(banco_num > n_bancos * 0.5, 2,      # MIXTO
-                   np.where(alters_f == 5, 4, 3)))              # SECUND o SULF
+    # ── ZONA MINERAL — LÓGICA REAL ROSARIO ───────────────────────────────────
+    # Fuente: zona_mineral.xlsx — Script Rosario
+    # Referencia: cut_lp_f = CUT (100% cobertura, como Vulcan)
+    #             cus_lp_f = CUS_SU proxy (cobre soluble sulfúrico)
+    #             cus_ci   = simulado (~82% de CUS_SU, relación lab típica)
+    #
+    # Códigos numéricos:
+    #   LIX=20, OXI=30, MIX=40, SEC=50, PRI=80, PRIPY=100
+    #
+    # Lógica completa Rosario:
+    # cut ≤ 0.2                          → LIX
+    # cut > 0.2 y cus_su > 0:
+    #   X = cus_su/cut
+    #   X < 0.20        → SEC
+    #   0.20 ≤ X < 0.45 → MIX
+    #   X ≥ 0.45        → OXI
+    # cut > 0.2 y cus_su ≤ 0 y cus_ci > 0:
+    #   X = (1.2181*cus_ci - 0.0004)/cut → mismos umbrales
+    # cut > 0.2 y cus_su ≤ 0 y cus_ci ≤ 0:
+    #   cut ≥ 0.6 → SEC
+    #   cut < 0.6 → LIX
+    #   cut ≥ 0.3 → PRI   (zona sin soluble)
+    #   cut < 0.3 → PRIPY
+
+    # CUS_SU: usamos cus_lp_f (proxy sulfato, 100% cobertura)
+    # CUS_CI: simulado como ~82% de CUS_SU (relación típica de laboratorio)
+    cus_su = cus_lp_f.copy()
+    cus_ci = cus_su * 0.82 * (0.9 + 0.2 * rng.random(n_total))
+    cus_ci = np.clip(cus_ci, 0.0, cus_su * 1.1)
+
+    cut_safe = np.where(cut_lp_f > 0, cut_lp_f, 0.001)  # evitar div/0
+    zona_mineral = np.full(n_total, 50, dtype=int)        # default SEC
+
+    # Gate inicial: cut ≤ 0.2 → LIX directo
+    mask_lix_bajo = cut_lp_f <= 0.2
+    zona_mineral = np.where(mask_lix_bajo, 20, zona_mineral)
+
+    # Bloques con cut > 0.2
+    mask_cut_ok = ~mask_lix_bajo
+
+    # Caso 1: cut > 0.2 y CUS_SU > 0
+    mask_su = mask_cut_ok & (cus_su > 0)
+    X1 = np.where(mask_su, cus_su / cut_safe, 0.0)
+    zona_mineral = np.where(mask_su & (X1 < 0.20),                50, zona_mineral)  # SEC
+    zona_mineral = np.where(mask_su & (X1 >= 0.20) & (X1 < 0.45), 40, zona_mineral)  # MIX
+    zona_mineral = np.where(mask_su & (X1 >= 0.45),               30, zona_mineral)  # OXI
+
+    # Caso 2: cut > 0.2 y CUS_SU ≤ 0 y CUS_CI > 0
+    mask_ci = mask_cut_ok & (cus_su <= 0) & (cus_ci > 0)
+    X2 = np.where(mask_ci, (1.2181 * cus_ci - 0.0004) / cut_safe, 0.0)
+    zona_mineral = np.where(mask_ci & (X2 < 0.20),                50, zona_mineral)  # SEC
+    zona_mineral = np.where(mask_ci & (X2 >= 0.20) & (X2 < 0.45), 40, zona_mineral)  # MIX
+    zona_mineral = np.where(mask_ci & (X2 >= 0.45),               30, zona_mineral)  # OXI
+
+    # Caso 3: cut > 0.2 y CUS_SU ≤ 0 y CUS_CI ≤ 0 (zona sin soluble)
+    mask_sin_sol = mask_cut_ok & (cus_su <= 0) & (cus_ci <= 0)
+    zona_mineral = np.where(mask_sin_sol & (cut_lp_f >= 0.6), 50,  zona_mineral)  # SEC
+    zona_mineral = np.where(mask_sin_sol & (cut_lp_f <  0.6), 20,  zona_mineral)  # LIX
+    zona_mineral = np.where(mask_sin_sol & (cut_lp_f >= 0.3), 80,  zona_mineral)  # PRI
+    zona_mineral = np.where(mask_sin_sol & (cut_lp_f <  0.3), 100, zona_mineral)  # PRIPY
 
     # Modelo (zona de extracción, tipo Rosario=1, Rosario Oeste=2)
     modelo_f = np.where(cx < X_BASE + n_x * DIM_BLOQUE * 0.6, 1, 2)
