@@ -153,33 +153,52 @@ def calcular_ley_cu_realista(campo_cu, litos, alters, bancos_idx):
 
 def agregar_sesgo_vulcan(ley_real, bancos_idx, seed_local=123):
     """
-    Simula la predicción tipo 'Vulcan' (geoestadística kriging).
-    Vulcan tiene sesgo conocido:
-    - Sobreestima en bancos profundos (~+5% promedio)
-    - Subestima en zonas de alta ley (~-8%)
-    - Error sistemático que varía por banco (como muestra la reconciliación histórica)
-    Esto replica los patrones reales de la imagen de reconciliación 2004-2013.
+    Simula la prediccion tipo Vulcan (geoestadistica kriging).
+
+    Sesgo calibrado con datos historicos REALES de reconciliacion 2004-2013
+    (Reconciliaciones_Historicas_CMDIC_2004_2013.xlsx):
+
+    Ano    Dif% Cu   Dif% Cuton   Dif% Ton
+    2004   +6.3%     +11.8%       +5.8%
+    2005   +6.5%     - 3.9%      -11.2%
+    2006   - 0.2%   - 6.8%       - 6.5%
+    2007   +2.6%    + 3.4%       + 0.9%
+    2008   +1.8%    + 2.3%       + 0.6%
+    2009   +7.9%    + 6.6%       - 1.4%
+    2010   +0.3%    + 0.6%       + 0.3%
+    2011   +2.2%    + 0.7%       - 1.5%
+    2012   - 0.2%   + 3.0%       + 3.2%
+    2013   +0.7%    + 5.4%       + 4.7%
+
+    Conclusion: Vulcan sobreestima ley Cu en 8/10 anos.
+    Sesgo promedio real: +3.2% en ley Cu (sistematico, no aleatorio).
+    Rango: -0.2% a +7.9%.
     """
     rng_v = np.random.default_rng(seed_local)
-    
-    # Sesgo por banco (replica figura histórica: oscila ±5-10%)
-    n_bancos = bancos_idx.max() + 1
-    sesgo_banco = 0.05 * np.sin(np.linspace(0, 2*np.pi, n_bancos)) + \
-                  rng_v.normal(0, 0.03, n_bancos)
-    
-    sesgo_local = sesgo_banco[bancos_idx]
-    
-    # Suavizado espacial (Vulcan no reproduce alta variabilidad local)
-    suavizado = 0.15 * rng_v.normal(0, 1, ley_real.shape)
-    
-    # Regresión hacia la media (kriging suaviza extremos)
+
+    # Sesgo historico real por ano interpolado a bancos
+    sesgo_anual_cu = np.array([
+        0.063, 0.065, -0.002, 0.026, 0.018,
+        0.079, 0.003, 0.022, -0.002, 0.007,
+    ])
+
+    n_bancos     = int(bancos_idx.max()) + 1
+    anos_norm    = np.linspace(0, n_bancos - 1, len(sesgo_anual_cu))
+    bancos_norm  = np.arange(n_bancos)
+    sesgo_interp = np.interp(bancos_norm, anos_norm, sesgo_anual_cu)
+    ruido_banco  = rng_v.normal(0, 0.03, n_bancos)
+    sesgo_banco  = sesgo_interp + ruido_banco
+    sesgo_local  = sesgo_banco[bancos_idx]
+
     media_global = ley_real.mean()
-    regresion = 0.1 * (media_global - ley_real)
-    
-    ley_vulcan = ley_real * (1 + sesgo_local) + suavizado + regresion
-    ley_vulcan = np.clip(ley_vulcan, 0.0, 4.0)
-    
+    regresion    = 0.08 * (media_global - ley_real)
+    suavizado    = 0.10 * rng_v.normal(0, 1, ley_real.shape)
+
+    ley_vulcan   = ley_real * (1 + sesgo_local) + suavizado + regresion
+    ley_vulcan   = np.clip(ley_vulcan, 0.0, 4.0)
+
     return ley_vulcan
+
 
 
 # ─── GENERADOR PRINCIPAL ──────────────────────────────────────────────────────
