@@ -212,10 +212,10 @@ geoestadístico, con mínimos ajustes:
 
 ## Autor
 
-**Manuel** — Consultor ML aplicado a minería  
+**Manuel Enrique Grandón Troncoso — Consultor ML aplicado a minería  
 Especialización en predicción de leyes, reconciliación y planificación minera  
 
-📧 [tu-email]  
+📧 manuel.grandon@gmail.com
 🔗 [LinkedIn]  
 
 ---
